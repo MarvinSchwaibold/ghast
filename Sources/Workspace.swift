@@ -96,10 +96,8 @@ final class Workspace: Identifiable, ObservableObject {
     func selectTab(_ id: UUID) {
         guard tabs.contains(where: { $0.id == id }) else { return }
         selectedTabId = id
-        // If selecting a tab not in the split layout, exit split mode
-        if let layout = splitLayout, !layout.allTabIds.contains(id) {
-            splitLayout = nil
-        }
+        // Split layout is preserved — the view layer decides whether to
+        // show split or single-tab based on whether selectedTab is in the layout.
     }
 
     func selectNextTab() {

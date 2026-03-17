@@ -32,9 +32,7 @@ struct ContentView: View {
 
             VStack(spacing: 0) {
                 TabBar(tabManager: tabManager)
-                SplitDropTargetView(tabManager: tabManager) {
-                    TerminalContainerView(tabManager: tabManager)
-                }
+                TerminalContainerView(tabManager: tabManager)
             }
         }
         .background(bgColor)
