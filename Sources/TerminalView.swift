@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import UniformTypeIdentifiers
 
 /// NSView that hosts a single Ghostty terminal surface.
 /// Handles keyboard, mouse, and text input, forwarding everything to libghostty.
@@ -21,6 +22,7 @@ class TerminalView: NSView, NSTextInputClient {
         super.init(frame: frame)
         wantsLayer = true
         layer?.masksToBounds = true
+        registerForDraggedTypes([.fileURL])
     }
 
     @available(*, unavailable)
@@ -203,6 +205,18 @@ class TerminalView: NSView, NSTextInputClient {
               fr === self || fr.isDescendant(of: self) else { return false }
         guard let surface else { return false }
 
+        // Intercept Cmd+V: paste via ghostty_surface_text to avoid a crash
+        // in libghostty's clipboard paste flow.
+        if event.modifierFlags.contains(.command),
+           event.charactersIgnoringModifiers == "v" {
+            let value = NSPasteboard.general.string(forType: .string) ?? ""
+            guard !value.isEmpty else { return true }
+            value.withCString { ptr in
+                ghostty_surface_text(surface, ptr, UInt(value.utf8.count))
+            }
+            return true
+        }
+
         // Check if Ghostty has a binding for this key
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = GHOSTTY_ACTION_PRESS
@@ -231,6 +245,53 @@ class TerminalView: NSView, NSTextInputClient {
 
     // Prevent system beep on unhandled key commands
     override func doCommand(by selector: Selector) {}
+
+    // Fallback paste handler for when the Edit menu's Cmd+V isn't caught by performKeyEquivalent
+    @objc func paste(_ sender: Any?) {
+        guard let surface else { return }
+        let value = NSPasteboard.general.string(forType: .string) ?? ""
+        guard !value.isEmpty else { return }
+        value.withCString { ptr in
+            ghostty_surface_text(surface, ptr, UInt(value.utf8.count))
+        }
+    }
+
+    // MARK: - File drag & drop
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard surface != nil else { return [] }
+        let dominated = sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self], options: [
+            .urlReadingFileURLsOnly: true,
+        ])
+        return dominated ? .copy : []
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let surface else { return false }
+        guard let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [
+            .urlReadingFileURLsOnly: true,
+        ]) as? [URL], !urls.isEmpty else { return false }
+
+        for (i, url) in urls.enumerated() {
+            let path = Self.shellEscapePath(url.path)
+            path.withCString { ptr in
+                ghostty_surface_text(surface, ptr, UInt(path.utf8.count))
+            }
+            if i < urls.count - 1 {
+                " ".withCString { ptr in
+                    ghostty_surface_text(surface, ptr, 1)
+                }
+            }
+        }
+        return true
+    }
+
+    private static func shellEscapePath(_ path: String) -> String {
+        let needsEscape = path.contains(where: { " \t\\\"'`$!#&|;()<>{}[]?*~".contains($0) })
+        guard needsEscape else { return path }
+        let inner = path.replacingOccurrences(of: "'", with: "'\\''")
+        return "'\(inner)'"
+    }
 
     // MARK: - Mouse input
 

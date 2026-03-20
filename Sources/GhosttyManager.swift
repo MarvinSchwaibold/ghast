@@ -317,12 +317,12 @@ final class GhosttyManager {
 
         case GHOSTTY_ACTION_OPEN_URL:
             let openUrl = action.action.open_url
-            guard let urlPtr = openUrl.url else { return true }
-            let urlString = String(
-                bytes: Data(bytes: urlPtr, count: Int(openUrl.len)),
+            let len = Int(openUrl.len)
+            guard let urlPtr = openUrl.url, len > 0 else { return true }
+            guard let urlString = String(
+                bytes: Data(bytes: urlPtr, count: len),
                 encoding: .utf8
-            ) ?? ""
-            guard !urlString.isEmpty else { return true }
+            ), !urlString.isEmpty else { return true }
             if let url = URL(string: urlString), url.scheme != nil {
                 NSWorkspace.shared.open(url)
             } else {
@@ -471,7 +471,7 @@ final class GhosttyManager {
         let pasteboard: NSPasteboard? = (location == GHOSTTY_CLIPBOARD_STANDARD) ? .general : nil
         let value = pasteboard?.string(forType: .string) ?? ""
         value.withCString { ptr in
-            ghostty_surface_complete_clipboard_request(surface, ptr, state, false)
+            ghostty_surface_complete_clipboard_request(surface, ptr, state, true)
         }
     }
 
