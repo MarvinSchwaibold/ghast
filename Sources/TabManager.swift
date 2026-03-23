@@ -29,6 +29,12 @@ final class TabManager: ObservableObject {
 
     private var focusObserver: Any?
 
+    deinit {
+        if let obs = focusObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+    }
+
     init() {
         let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
         let workspace = addWorkspace(directory: homeDir)
@@ -115,11 +121,19 @@ final class TabManager: ObservableObject {
         if normalizePath(sourceWs.directory) == normalized { return }
 
         // If this is the only tab in the workspace, just update the workspace's directory
-        // instead of creating a new empty workspace
+        // instead of creating a new empty workspace — unless another workspace already owns it
         if sourceWs.tabs.count == 1 {
-            // But only if no other workspace already owns this directory
-            if workspaces.contains(where: { $0.id != sourceWs.id && normalizePath($0.directory) == normalized }) {
-                // Another workspace exists for this dir — move the tab there
+            if let existing = workspaces.first(where: { $0.id != sourceWs.id && normalizePath($0.directory) == normalized }) {
+                // Another workspace exists for this dir — move the tab there and remove the empty source
+                guard let tab = sourceWs.tabs.first else { return }
+                sourceWs.tabs.removeAll()
+                workspaceSubs.removeValue(forKey: sourceWs.id)
+                workspaces.removeAll { $0.id == sourceWs.id }
+
+                existing.tabs.append(tab)
+                existing.selectedTabId = tab.id
+                selectedWorkspaceId = existing.id
+                return
             } else {
                 sourceWs.directory = normalized
                 return

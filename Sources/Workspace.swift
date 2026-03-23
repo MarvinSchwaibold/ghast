@@ -14,6 +14,9 @@ final class Workspace: Identifiable, ObservableObject {
     /// When nil or a single leaf, the selected tab fills the whole area.
     @Published var splitLayout: SplitNode?
 
+    /// Throttle split creation to prevent Ghostty SIGABRT on rapid surface allocation.
+    private var lastSplitTime: Date = .distantPast
+
     /// When set, the pane with this tab ID is shown fullscreen (zoomed),
     /// hiding all other split panes. The split tree is preserved for unzoom.
     @Published var zoomedTabId: UUID?
@@ -49,7 +52,11 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Create a new tab split next to the given tab.
     @discardableResult
-    func createSplitTab(nextTo tabId: UUID, direction: SplitNode.SplitDirection) -> Tab {
+    func createSplitTab(nextTo tabId: UUID, direction: SplitNode.SplitDirection) -> Tab? {
+        let now = Date()
+        guard now.timeIntervalSince(lastSplitTime) > 0.5 else { return nil }
+        lastSplitTime = now
+
         let tab = Tab(workingDirectory: directory)
         tabs.append(tab)
 
@@ -96,6 +103,8 @@ final class Workspace: Identifiable, ObservableObject {
         return false
     }
 
+    /// Reorder tabs in the tab bar. Split layout is unaffected — it references
+    /// tabs by UUID, not array position, so spatial arrangement is preserved.
     func moveTab(from sourceId: UUID, to targetId: UUID) {
         guard let fromIndex = tabs.firstIndex(where: { $0.id == sourceId }),
               let toIndex = tabs.firstIndex(where: { $0.id == targetId }),

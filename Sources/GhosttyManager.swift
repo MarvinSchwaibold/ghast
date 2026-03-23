@@ -470,9 +470,9 @@ final class GhosttyManager {
 
         let pasteboard: NSPasteboard? = (location == GHOSTTY_CLIPBOARD_STANDARD) ? .general : nil
         let value = pasteboard?.string(forType: .string) ?? ""
-        value.withCString { ptr in
-            ghostty_surface_complete_clipboard_request(surface, ptr, state, true)
-        }
+        let cStr = strdup(value)
+        ghostty_surface_complete_clipboard_request(surface, cStr, state, true)
+        free(cStr)
     }
 
     private static func writeClipboard(

@@ -6,6 +6,8 @@ class SplitContainerView: NSView {
     private var currentLayout: SplitNode?
     private var dividerViews: [DividerView] = []
     private var tabLookup: ((UUID) -> Tab?)? = nil
+    /// Index into dividerViews during layoutNode traversal, used to reuse existing dividers.
+    private var dividerIndex: Int = 0
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -19,9 +21,6 @@ class SplitContainerView: NSView {
     func update(with layout: SplitNode, tabLookup: @escaping (UUID) -> Tab?) {
         self.currentLayout = layout
         self.tabLookup = tabLookup
-
-        dividerViews.forEach { $0.removeFromSuperview() }
-        dividerViews.removeAll()
 
         // Collect active terminal views
         let activeTabIds = Set(layout.allTabIds)
@@ -37,15 +36,42 @@ class SplitContainerView: NSView {
             }
         }
 
+        rebuildDividers(for: layout)
         layoutNode(layout, in: bounds)
     }
 
     override func layout() {
         super.layout()
         guard let layout = currentLayout else { return }
-        dividerViews.forEach { $0.removeFromSuperview() }
-        dividerViews.removeAll()
+        // Reposition existing dividers — never remove/add views during layout()
+        // to avoid infinite constraint invalidation loops.
+        dividerIndex = 0
         layoutNode(layout, in: bounds)
+    }
+
+    /// Count the splits in the tree and ensure we have the right number of divider views.
+    private func rebuildDividers(for layout: SplitNode) {
+        let needed = countSplits(layout)
+        // Remove excess
+        while dividerViews.count > needed {
+            dividerViews.removeLast().removeFromSuperview()
+        }
+        // Add missing
+        while dividerViews.count < needed {
+            let divider = DividerView(frame: .zero)
+            divider.translatesAutoresizingMaskIntoConstraints = true
+            addSubview(divider)
+            dividerViews.append(divider)
+        }
+        dividerIndex = 0
+    }
+
+    private func countSplits(_ node: SplitNode) -> Int {
+        switch node.content {
+        case .tab: return 0
+        case .split(_, let first, let second, _):
+            return 1 + countSplits(first) + countSplits(second)
+        }
     }
 
     private func adoptTerminalView(_ terminalView: TerminalView, in rect: NSRect) {
@@ -92,7 +118,7 @@ class SplitContainerView: NSView {
                 let secondRect = NSRect(x: rect.minX + firstWidth + totalDivider, y: rect.minY, width: secondWidth, height: rect.height)
 
                 layoutNode(first, in: firstRect)
-                addDivider(in: dividerRect, direction: direction, node: node, parentRect: rect)
+                positionDivider(in: dividerRect, direction: direction, node: node, parentRect: rect)
                 layoutNode(second, in: secondRect)
 
             case .vertical:
@@ -104,20 +130,24 @@ class SplitContainerView: NSView {
                 let secondRect = NSRect(x: rect.minX, y: rect.minY + firstHeight + totalDivider, width: rect.width, height: secondHeight)
 
                 layoutNode(first, in: firstRect)
-                addDivider(in: dividerRect, direction: direction, node: node, parentRect: rect)
+                positionDivider(in: dividerRect, direction: direction, node: node, parentRect: rect)
                 layoutNode(second, in: secondRect)
             }
         }
     }
 
-    private func addDivider(in rect: NSRect, direction: SplitNode.SplitDirection, node: SplitNode, parentRect: NSRect) {
-        let divider = DividerView(frame: rect)
+    /// Reuse an existing divider view, just repositioning and updating its properties.
+    private func positionDivider(in rect: NSRect, direction: SplitNode.SplitDirection, node: SplitNode, parentRect: NSRect) {
+        guard dividerIndex < dividerViews.count else { return }
+        let divider = dividerViews[dividerIndex]
+        dividerIndex += 1
+        divider.frame = rect
         divider.splitDirection = direction
         divider.splitNode = node
         divider.containerView = self
         divider.parentRect = parentRect
-        addSubview(divider)
-        dividerViews.append(divider)
+        divider.needsDisplay = true
+        divider.resetCursorRects()
     }
 
     /// Draggable divider between split panes.
@@ -164,7 +194,7 @@ class SplitContainerView: NSView {
         }
 
         override func mouseDragged(with event: NSEvent) {
-            guard let node = splitNode, let container = containerView, let layout = container.currentLayout else { return }
+            guard let node = splitNode, let container = containerView else { return }
             let point = container.convert(event.locationInWindow, from: nil)
 
             let delta: CGFloat
@@ -182,9 +212,7 @@ class SplitContainerView: NSView {
             guard totalSize > 0 else { return }
             let newRatio = dragStartRatio + delta / totalSize
             node.setRatio(newRatio)
-            if let lookup = container.tabLookup {
-                container.update(with: layout, tabLookup: lookup)
-            }
+            container.needsLayout = true
         }
     }
 }

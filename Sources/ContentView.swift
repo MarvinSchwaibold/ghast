@@ -170,7 +170,7 @@ struct WorkspaceItemView: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 4) {
                 if isEditing {
                     TextField("Workspace name", text: $editText)
                         .textFieldStyle(.plain)
@@ -240,6 +240,7 @@ struct WorkspaceItemView: View {
 
 struct TabBar: View {
     @ObservedObject var tabManager: TabManager
+    @State private var isSplitCooldown = false
 
     private var bgColor: Color { Color(nsColor: GhosttyManager.shared.backgroundColor) }
 
@@ -269,15 +270,20 @@ struct TabBar: View {
 
                 Spacer()
 
-                // Split button
+                // Split button (throttled to prevent Ghostty SIGABRT on rapid surface creation)
                 Button(action: {
+                    guard !isSplitCooldown else { return }
                     if let ws = tabManager.selectedWorkspace, let tab = ws.selectedTab {
                         ws.createSplitTab(nextTo: tab.id, direction: .horizontal)
+                        isSplitCooldown = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            isSplitCooldown = false
+                        }
                     }
                 }) {
                     Image(systemName: "rectangle.split.2x1")
                         .font(.system(size: 12))
-                        .foregroundColor(.white.opacity(0.4))
+                        .foregroundColor(.white.opacity(isSplitCooldown ? 0.15 : 0.4))
                         .frame(width: 32, height: 32)
                         .contentShape(Rectangle())
                 }

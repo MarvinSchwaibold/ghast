@@ -207,27 +207,17 @@ class TerminalView: NSView, NSTextInputClient {
         // Filter function key text (same issue as keyDown — private-use Unicode garbage).
         let text = Self.isFunctionKey(event) ? "" : (event.characters ?? "")
         var flags = ghostty_binding_flags_e(0)
-        let isBinding: Bool
         if text.isEmpty {
-            isBinding = ghostty_surface_key_is_binding(surface, keyEvent, &flags)
-        } else {
-            isBinding = text.withCString { ptr in
-                keyEvent.text = ptr
-                return ghostty_surface_key_is_binding(surface, keyEvent, &flags)
-            }
-        }
-
-        guard isBinding else { return false }
-
-        if text.isEmpty {
+            guard ghostty_surface_key_is_binding(surface, keyEvent, &flags) else { return false }
             _ = ghostty_surface_key(surface, keyEvent)
-        } else {
-            text.withCString { ptr in
-                keyEvent.text = ptr
-                _ = ghostty_surface_key(surface, keyEvent)
-            }
+            return true
         }
-        return true
+        return text.withCString { ptr in
+            keyEvent.text = ptr
+            guard ghostty_surface_key_is_binding(surface, keyEvent, &flags) else { return false }
+            _ = ghostty_surface_key(surface, keyEvent)
+            return true
+        }
     }
 
     // Prevent system beep on unhandled key commands
